@@ -18,17 +18,18 @@ static const char OTA_UI_HTML[] PROGMEM = R"HTML(<!doctype html>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta name="theme-color" content="#0b0d12"/>
-<title>__TITLE__</title>
+<title>JouleOTA</title>
 <style>
 :root{
-  --bg:#0a0c12;--panel:rgba(255,255,255,.04);--panel-s:#141a2a;
-  --ink:#e8ecf5;--ink2:#a5acc1;--muted:#6b7390;--line:rgba(255,255,255,.08);
-  --brand:__BRAND__;--brand-2:#22d3ee;--ok:#3ddc97;--warn:#ffb347;--err:#ff6b81;
-  --r:18px;--shadow:0 12px 40px rgba(0,0,0,.3);
+  --bg:#0b0f1a;--panel:rgba(255,255,255,.035);--panel-s:#151a2b;
+  --ink:#e6e9f2;--ink2:#9aa3b9;--muted:#6b7390;--line:rgba(255,255,255,.07);
+  --brand:#6366f1;--brand-2:#8b5cf6;
+  --ok:#10b981;--warn:#f59e0b;--err:#ef4444;--info:#0ea5e9;
+  --r:16px;--shadow:0 12px 36px rgba(8,12,28,.45);
   --grad:linear-gradient(135deg,var(--brand),var(--brand-2));
 }
-:root[data-theme="light"]{--bg:#f4f6fc;--panel:rgba(255,255,255,.75);--panel-s:#fff;--ink:#0f1730;--ink2:#3a4366;--line:rgba(15,23,48,.08);--shadow:0 10px 28px rgba(20,32,80,.08)}
-@media(prefers-color-scheme:light){:root[data-theme="auto"]{--bg:#f4f6fc;--panel:rgba(255,255,255,.75);--panel-s:#fff;--ink:#0f1730;--ink2:#3a4366;--line:rgba(15,23,48,.08);--shadow:0 10px 28px rgba(20,32,80,.08)}}
+:root[data-theme="light"]{--bg:#f7f8fb;--panel:rgba(255,255,255,.78);--panel-s:#fff;--ink:#101427;--ink2:#3a4366;--line:rgba(16,20,39,.08);--shadow:0 10px 28px rgba(20,32,80,.08)}
+@media(prefers-color-scheme:light){:root[data-theme="auto"]{--bg:#f7f8fb;--panel:rgba(255,255,255,.78);--panel-s:#fff;--ink:#101427;--ink2:#3a4366;--line:rgba(16,20,39,.08);--shadow:0 10px 28px rgba(20,32,80,.08)}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;height:100%}
 body{font:14.5px/1.5 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg);
   background-image:radial-gradient(1200px 600px at 10% -10%,color-mix(in srgb,var(--brand) 18%,transparent),transparent 60%),radial-gradient(1000px 500px at 110% 10%,color-mix(in srgb,var(--brand-2) 14%,transparent),transparent 55%);
@@ -82,7 +83,7 @@ footer{text-align:center;color:var(--muted);font-size:11px;margin:24px 0}
 <div class="wrap">
 <header>
   <div class="logo">⚡</div>
-  <div><h1>__TITLE__</h1><div class="sub">JouleOTA · drag a firmware to flash</div></div>
+  <div><h1 id="appTitle">JouleOTA</h1><div class="sub">drag a firmware to flash</div></div>
   <div class="spacer"></div>
   <button class="iconbtn" id="themeBtn" title="theme">◐</button>
 </header>
@@ -165,13 +166,19 @@ function setProgress(pct){
   $("#progText").textContent=pct.toFixed(1)+"%";
 }
 
-function applyTheme(){const m=localStorage.getItem("joule-theme")||"auto";document.documentElement.setAttribute("data-theme",m)}
+function applyTheme(){const m=localStorage.getItem("joule-theme")||"dark";document.documentElement.setAttribute("data-theme",m)}
 $("#themeBtn").onclick=()=>{const c=document.documentElement.getAttribute("data-theme")||"auto";const n=c==="auto"?"dark":(c==="dark"?"light":"auto");localStorage.setItem("joule-theme",n);applyTheme();toast("Theme: "+n)};
 applyTheme();
 
 async function refreshInfo(){
   try{
     const r=await fetch("/ota/info"),j=await r.json();
+    // Live-apply title + brand from the host sketch's setTitle()/
+    // setBrandColor() calls. The HTML itself ships pre-gzipped so we
+    // can't template-substitute on the device — do it in the browser.
+    if(j.title){document.title=j.title;const t=$("#appTitle");if(t)t.textContent=j.title}
+    if(j.brand){document.documentElement.style.setProperty("--brand",j.brand);
+                document.querySelector('meta[name="theme-color"]')?.setAttribute("content",j.brand)}
     $("#hwId").textContent=j.hwId||"(none)";$("#fwVer").textContent=j.fwVersion||"-";
     $("#freeSpace").textContent=fmtBytes(j.freeOta||0);
     $("#curSlot").textContent=j.currentSlot||"-";$("#nxtSlot").textContent=j.nextSlot||"-";

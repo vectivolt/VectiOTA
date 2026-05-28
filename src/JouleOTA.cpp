@@ -219,6 +219,7 @@ void JouleOTAClass::begin(AsyncWebServer *server, const String &username, const 
     doc["hwId"]       = _hwId;
     doc["fwVersion"]  = _fwVersion;
     doc["title"]      = _title;
+    doc["brand"]      = _brandColor;
     doc["freeHeap"]   = ESP.getFreeHeap();
 #if defined(ESP32)
     const esp_partition_t *running = esp_ota_get_running_partition();
