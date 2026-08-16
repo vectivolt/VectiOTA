@@ -4,15 +4,20 @@
 > a browser, pull from a URL, sign with HMAC-SHA256, A/B-rollback if the
 > new image goes bad. Apache-2.0 licensed, mobile-friendly, gzipped UI.
 
-![VectiOTA UI](docs/screenshots/ota-desktop.png)
+![VectiOTA UI](docs/screenshots/ota-dark.png)
 
 **Author:** [Chinmoy Bhuyan](mailto:chinmoy@joulepoint.com) · **License:** Apache-2.0
-· **Targets:** ESP32 (S2 / S3 / C3 / classic), ESP8266
+· **Built and run on:** ESP32-S3 · **Also declared:** ESP8266
+
+`library.json` declares `espressif32` and `espressif8266`, and `src/` carries
+real ESP8266 code paths (`Updater.h`, BearSSL HMAC). **Only ESP32-S3 has been
+built and run** — see [Limitations](#limitations) before you ship an ESP8266
+image.
 
 Two features are ESP32-only, because the hardware is: **pull-from-URL**
 (`/ota/pull` answers `501` on ESP8266) and **A/B rollback** (ESP8266 has no
-second app slot). Push upload, signing, auth, rate limiting and the UI work
-on both.
+second app slot). Push upload, signing, auth, rate limiting and the UI are
+written for both.
 
 ---
 
@@ -31,11 +36,21 @@ on both.
 | 🔒 **HTTP Basic + token auth** | Pick `OtaAuth::Basic` for browser flows, `OtaAuth::Token` for headless CI |
 | 🎨 **Theme aware** | Dark / light / auto; user choice persists; brand colour configurable |
 | 📱 **Mobile-first** | 44 px touch targets, viewport-fit safe-area, glass-morphism panels |
-| 🪶 **Pre-gzipped UI** | 70 KB SPA ships as a 25 KB flash blob and goes out with `Content-Encoding: gzip` |
+| 🪶 **Pre-gzipped UI** | 71,475 B of HTML ships as a **25,822 B** PROGMEM blob and goes out with `Content-Encoding: gzip` |
 
 ---
 
 ## Quick start
+
+Three lines on top of an `AsyncWebServer` you already have:
+
+```cpp
+VectiOTA.begin(&server, "admin", "vecti");   // mounts /ota + 6 routes
+server.begin();
+// …and VectiOTA.loop(); from loop()
+```
+
+The whole sketch:
 
 ```cpp
 #include <WiFi.h>
@@ -215,9 +230,10 @@ uint8_t progressPct()   const;
 
 ```json
 {
-  "hwId":        "D0:CF:13:73:0A:B8",
+  "hwId":        "D0CF13721758",
   "fwVersion":   "1.0.0+demo",
   "title":       "VectiSuite OTA",
+  "brand":       "#0fd08c",
   "freeHeap":    250248,
   "currentSlot": "app0",
   "nextSlot":    "app1",
@@ -229,6 +245,10 @@ uint8_t progressPct()   const;
   "allowPull":   true
 }
 ```
+
+Those are every key the handler emits. On ESP8266 the partition trio
+(`currentSlot`, `nextSlot`, `slotState`) is absent — only `freeOta` is
+reported, from `ESP.getFreeSketchSpace()`.
 
 ### `/ota/events` event stream
 
@@ -390,9 +410,14 @@ VectiOTA.begin(&server);              // pass empty strings
 | **Pull-URL tab** | URL input + "Pull & flash" button (queues a fetch on the device) |
 | **Maintenance card** | ✓ Commit current · ↺ Rollback (red, confirmation prompt) |
 
+Light theme (the ◐ toggle in the header; the choice persists in
+`localStorage["vecti-theme"]`):
+
+![VectiOTA updater, light theme](docs/screenshots/ota-light.png)
+
 Mobile (390 px wide):
 
-![VectiOTA mobile](docs/screenshots/ota-mobile.png)
+![VectiOTA mobile](docs/screenshots/ota-phone.png)
 
 ---
 
@@ -415,7 +440,7 @@ Mobile (390 px wide):
 
 | Concern | Roll-your-own | VectiOTA |
 |---|---|---|
-| Drag-drop UI | Write & maintain HTML | Included, 25 KB gz |
+| Drag-drop UI | Write & maintain HTML | Included, 25,822 B gz |
 | Pull-from-URL | Bespoke HTTP client + state machine | One POST `/ota/pull` |
 | Signature check | Hook into mbedtls manually | `setSigningKey()` |
 | A/B rollback | Read `esp_ota_*` APIs by hand | `setRollbackTimeoutMs()` + `commit()` |
@@ -432,13 +457,41 @@ Mobile (390 px wide):
   Anything older fails to compile with `'AsyncURIMatcher' has not been declared`.
 * `ESP32Async/AsyncTCP @ ^3.4.0`
 * `bblanchon/ArduinoJson @ ^7.4.0`
-* arduino-esp32 core 2.0.17 or newer (the bundled demo builds on 2.0.17)
+* arduino-esp32 core 2.0.17 or newer (the demo builds on 2.0.17, platform
+  `espressif32 @ 6.13.0`)
+
+---
+
+## Limitations
+
+Read this before you put VectiOTA on something you can't walk up to.
+
+| Limitation | Detail |
+|---|---|
+| **Signing is symmetric** | `setSigningKey()` is HMAC-SHA256. The key that verifies the image is compiled **into** the image, so anyone who can read your flash can forge a signature. It stops a stolen Wi-Fi password from pushing a binary; it does not stop someone holding the board. Asymmetric signing (Ed25519) is a wanted future change, not a shipped feature |
+| **Pulled images are unsigned** | `/ota/pull` verifies nothing about the payload beyond `Content-Length`. Pin a CA with `setPullCACert()` and treat TLS as the whole trust story for that path |
+| **Pull blocks `loop()`** | The download runs synchronously inside `loop()`. A 1 MB image stalls your sketch for the length of the transfer |
+| **Rate limiter is 8 slots** | A fixed 8-entry per-IP table, not a DoS-resistant cache. It exists to protect the flash erase counter, not to survive an attack |
+| **Basic auth is plaintext** | HTTP Basic and `X-Vecti-Token` both cross the wire in the clear. LAN-grade. Put the device behind TLS or a VPN if the network is not trusted |
+| **ESP8266 is unbuilt** | The code paths exist; no ESP8266 board has been flashed with them |
+| **Network paths unverified on hardware** | The ESP32-S3 build flashes, boots and registers its routes. Upload, pull and rollback have **not** been exercised over a real network — the board was verified over USB serial only |
+| **New project** | No CI, no test suite, no users yet, and not in the Arduino Library Manager. Install from Git or PlatformIO's `lib_deps` URL form |
+
+### License position — honest version
+
+VectiOTA's own code is Apache-2.0. It links **ESPAsyncWebServer** and
+**AsyncTCP**, both **LGPL-3.0**. There is no dynamic linking on an MCU, so
+LGPL §4's relink obligations attach to the binary you ship. Do not read
+"Apache-2.0" as "no copyleft obligations" — plan for the LGPL terms on the
+async stack. Every ESP32 async-web library in this space inherits exactly the
+same dependency, so this is a property of the ecosystem, not of this library.
 
 ---
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE). See [Limitations](#limitations) for the
+LGPL-3.0 obligations inherited from ESPAsyncWebServer / AsyncTCP.
 
 ---
 
