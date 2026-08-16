@@ -1,7 +1,6 @@
 // ---------------------------------------------------------------------------
 // VectiSuite for ESP32 / ESP8266 — VectiOTA · VectiSerial · VectiNet · VectiDash
-// Author: Chinmoy Bhuyan
-// Email:  chinmoy@joulepoint.com
+// Author: VectiVolt team
 // (c) 2026 VectiVolt — Apache-2.0 License
 // ---------------------------------------------------------------------------
 //

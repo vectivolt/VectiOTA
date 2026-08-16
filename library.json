@@ -10,8 +10,8 @@
   "keywords": "ota, esp32, esp8266, async, update, firmware, signed, rollback",
   "authors": [
     {
-      "name": "Chinmoy Bhuyan",
-      "email": "chinmoy@joulepoint.com",
+      "name": "VectiVolt",
+      "email": "team@vectivolt.com",
       "maintainer": true
     }
   ],
