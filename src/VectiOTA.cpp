@@ -47,6 +47,11 @@ static void sendGzippedUi(AsyncWebServerRequest *req, const uint8_t *gz, size_t 
 #if defined(ESP32)
   #include <HTTPClient.h>
   #include <WiFiClientSecure.h>
+  // arduino-esp32 3.x re-homed WiFiClient onto NetworkClient and stopped
+  // pulling it in transitively, so 2.x builds compiled without this and 3.x
+  // (which is what the C6 and H2 need) does not. Include it explicitly rather
+  // than relying on a transitive path that already changed once.
+  #include <WiFiClient.h>
 #endif
 
 namespace vecti {
