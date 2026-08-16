@@ -1,15 +1,15 @@
 // ---------------------------------------------------------------------------
-// JouleSuite for ESP32 / ESP8266 — JouleOTA · JouleSerial · JouleNet · JouleDash
+// VectiSuite for ESP32 / ESP8266 — VectiOTA · VectiSerial · VectiNet · VectiDash
 // Author: Chinmoy Bhuyan
-// Email:  dikibhuyan@gmail.com
-// (c) 2026 — MIT License
+// Email:  chinmoy@joulepoint.com
+// (c) 2026 VectiVolt — Apache-2.0 License
 // ---------------------------------------------------------------------------
 
-// Minimal JouleOTA example — Wi-Fi station + drag-drop OTA UI at /ota.
+// Minimal VectiOTA example — Wi-Fi station + drag-drop OTA UI at /ota.
 // Open http://<device-ip>/ota in a browser, drop a firmware.bin.
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
-#include <JouleOTA.h>
+#include <VectiOTA.h>
 
 AsyncWebServer server(80);
 
@@ -20,17 +20,17 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED) { delay(250); Serial.print('.'); }
   Serial.println(); Serial.println(WiFi.localIP());
 
-  JouleOTA.setID(WiFi.macAddress());
-  JouleOTA.setFWVersion("1.0.0");
-  JouleOTA.setTitle("JouleOTA Demo");
-  JouleOTA.setRollbackTimeoutMs(30000);          // auto-revert after 30s if not committed
-  JouleOTA.onStart([](joule::OtaMode m){ Serial.println("OTA start"); });
-  JouleOTA.onEnd([](bool ok, const String &msg){ Serial.printf("OTA end ok=%d %s\n", ok, msg.c_str()); });
+  VectiOTA.setID(WiFi.macAddress());
+  VectiOTA.setFWVersion("1.0.0");
+  VectiOTA.setTitle("VectiOTA Demo");
+  VectiOTA.setRollbackTimeoutMs(30000);          // auto-revert after 30s if not committed
+  VectiOTA.onStart([](vecti::OtaMode m){ Serial.println("OTA start"); });
+  VectiOTA.onEnd([](bool ok, const String &msg){ Serial.printf("OTA end ok=%d %s\n", ok, msg.c_str()); });
 
-  JouleOTA.begin(&server, "admin", "joule");
+  VectiOTA.begin(&server, "admin", "vecti");
   server.begin();
 
-  JouleOTA.commit();                              // mark "this firmware is good"
+  VectiOTA.commit();                              // mark "this firmware is good"
 }
 
-void loop() { JouleOTA.loop(); }
+void loop() { VectiOTA.loop(); }

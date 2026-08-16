@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// JouleSuite for ESP32 / ESP8266 — JouleOTA · JouleSerial · JouleNet · JouleDash
+// VectiSuite for ESP32 / ESP8266 — VectiOTA · VectiSerial · VectiNet · VectiDash
 // Author: Chinmoy Bhuyan
-// Email:  dikibhuyan@gmail.com
-// (c) 2026 — MIT License
+// Email:  chinmoy@joulepoint.com
+// (c) 2026 VectiVolt — Apache-2.0 License
 // ---------------------------------------------------------------------------
 //
 // PullFromUrl — device-initiated OTA. Every CHECK_EVERY_MS the firmware
@@ -20,10 +20,10 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
-#include <JouleOTA.h>
+#include <VectiOTA.h>
 
 constexpr const char *RUNNING_VERSION = "1.0.0";
-constexpr const char *MANIFEST_URL    = "https://builds.example.com/joule-device/manifest.json";
+constexpr const char *MANIFEST_URL    = "https://builds.example.com/vecti-device/manifest.json";
 constexpr uint32_t    CHECK_EVERY_MS  = 60UL * 60UL * 1000UL;     // 1 h
 
 AsyncWebServer server(80);
@@ -63,26 +63,26 @@ void setup() {
   WiFi.begin("YOUR_SSID", "YOUR_PASS");
   while (WiFi.status() != WL_CONNECTED) delay(200);
 
-  JouleOTA.setID(WiFi.macAddress());
-  JouleOTA.setFWVersion(RUNNING_VERSION);
-  JouleOTA.setTitle("Fleet OTA · " + WiFi.macAddress());
-  JouleOTA.allowPullMode(true);
+  VectiOTA.setID(WiFi.macAddress());
+  VectiOTA.setFWVersion(RUNNING_VERSION);
+  VectiOTA.setTitle("Fleet OTA · " + WiFi.macAddress());
+  VectiOTA.allowPullMode(true);
   // https:// pulls are refused until you say what to trust. Pin the root CA
   // your build server's certificate chains to:
-  //   JouleOTA.setPullCACert(MY_ROOT_CA_PEM);
+  //   VectiOTA.setPullCACert(MY_ROOT_CA_PEM);
   // The opt-out below accepts any certificate — fine on a lab LAN, not in a
   // fleet, where anyone who can answer DNS then owns the boot image.
-  JouleOTA.allowInsecurePullTls(true);
-  JouleOTA.begin(&server, "admin", "strong-password");
+  VectiOTA.allowInsecurePullTls(true);
+  VectiOTA.begin(&server, "admin", "strong-password");
   server.begin();
-  JouleOTA.commit();
+  VectiOTA.commit();
 
   checkForUpdate();      // immediate check on boot
   lastCheck = millis();
 }
 
 void loop() {
-  JouleOTA.loop();
+  VectiOTA.loop();
   if (millis() - lastCheck >= CHECK_EVERY_MS) {
     lastCheck = millis();
     checkForUpdate();

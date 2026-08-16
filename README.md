@@ -1,12 +1,12 @@
-# JouleOTA
+# VectiOTA
 
 > Async over-the-air firmware updater for ESP32 and ESP8266 — drag-drop in
 > a browser, pull from a URL, sign with HMAC-SHA256, A/B-rollback if the
-> new image goes bad. MIT-licensed, mobile-friendly, gzipped UI.
+> new image goes bad. Apache-2.0 licensed, mobile-friendly, gzipped UI.
 
-![JouleOTA UI](docs/screenshots/ota-desktop.png)
+![VectiOTA UI](docs/screenshots/ota-desktop.png)
 
-**Author:** [Chinmoy Bhuyan](mailto:dikibhuyan@gmail.com) · **License:** MIT
+**Author:** [Chinmoy Bhuyan](mailto:chinmoy@joulepoint.com) · **License:** Apache-2.0
 · **Targets:** ESP32 (S2 / S3 / C3 / classic), ESP8266
 
 Two features are ESP32-only, because the hardware is: **pull-from-URL**
@@ -40,7 +40,7 @@ on both.
 ```cpp
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
-#include <JouleOTA.h>
+#include <VectiOTA.h>
 
 AsyncWebServer server(80);
 
@@ -50,15 +50,15 @@ void setup() {
   WiFi.begin("YOUR_SSID", "YOUR_PASS");
   while (WiFi.status() != WL_CONNECTED) delay(250);
 
-  JouleOTA.setID(WiFi.macAddress());
-  JouleOTA.setFWVersion("1.0.0");
-  JouleOTA.begin(&server, "admin", "joule");
+  VectiOTA.setID(WiFi.macAddress());
+  VectiOTA.setFWVersion("1.0.0");
+  VectiOTA.begin(&server, "admin", "vecti");
   server.begin();
 
-  JouleOTA.commit();           // mark this firmware as known-good
+  VectiOTA.commit();           // mark this firmware as known-good
 }
 
-void loop() { JouleOTA.loop(); }
+void loop() { VectiOTA.loop(); }
 ```
 
 Open `http://<device-ip>/ota` and drop a `firmware.bin`. Done.
@@ -99,7 +99,7 @@ void clearAuth();
 ```
 
 * `OtaAuth::Basic` → standard browser-prompted Basic auth.
-* `OtaAuth::Token` → expects header `X-Joule-Token: <token>` on every
+* `OtaAuth::Token` → expects header `X-Vecti-Token: <token>` on every
   request. Use this for CI flows where you don't want a browser dialog.
 
 ### Signed firmware (recommended for production)
@@ -109,7 +109,7 @@ void setSigningKey(const String &hexKey);       // empty = disable (default)
 ```
 
 If a key is set, each `/ota/upload` must include header
-`X-Joule-Signature: <hex>` where `hex` is the HMAC-SHA256 of the image
+`X-Vecti-Signature: <hex>` where `hex` is the HMAC-SHA256 of the image
 computed with the key. The digest is fed to the HMAC chunk by chunk as the
 body streams in (nothing is buffered) and compared — constant-time, against
 the decoded bytes so case doesn't matter — before `Update.end()` marks the
@@ -161,10 +161,10 @@ Recommended flow:
 ```cpp
 void setup() {
   …
-  JouleOTA.setRollbackTimeoutMs(30000);   // 30 s grace period
-  JouleOTA.begin(&server, "admin", "pass");
+  VectiOTA.setRollbackTimeoutMs(30000);   // 30 s grace period
+  VectiOTA.begin(&server, "admin", "pass");
 
-  if (runSelfTest()) JouleOTA.commit();
+  if (runSelfTest()) VectiOTA.commit();
   // else: do nothing → bootloader will revert on next reset
 }
 ```
@@ -207,7 +207,7 @@ uint8_t progressPct()   const;
 | `/ota/info`   | GET  | yes | JSON snapshot of device + partition state |
 | `/ota/upload` | POST | yes | Multipart firmware/filesystem upload (`?mode=firmware\|filesystem`) |
 | `/ota/pull`   | POST | yes | `{"url":"…","mode":"firmware"}` — device fetches over HTTP/HTTPS (ESP32 only; `501` elsewhere) |
-| `/ota/events` | SSE  | yes | Live progress + status events. Basic auth only — an `EventSource` can't send `X-Joule-Token`, so token mode closes this endpoint rather than leaving it open |
+| `/ota/events` | SSE  | yes | Live progress + status events. Basic auth only — an `EventSource` can't send `X-Vecti-Token`, so token mode closes this endpoint rather than leaving it open |
 | `/ota/commit` | POST | yes | Mark current slot valid (cancels pending rollback) |
 | `/ota/rollback` | POST | yes | Revert to previous slot and reboot. `409 rollback-unavailable` when there is no other valid slot (serial-flashed image, single-app partition table); `501` on ESP8266 |
 
@@ -217,7 +217,7 @@ uint8_t progressPct()   const;
 {
   "hwId":        "D0:CF:13:73:0A:B8",
   "fwVersion":   "1.0.0+demo",
-  "title":       "JouleSuite OTA",
+  "title":       "VectiSuite OTA",
   "freeHeap":    250248,
   "currentSlot": "app0",
   "nextSlot":    "app1",
@@ -248,7 +248,7 @@ data: complete
 ## Pull-from-URL flow
 
 ```bash
-curl -u admin:joule -X POST http://device.local/ota/pull \
+curl -u admin:vecti -X POST http://device.local/ota/pull \
   -H "Content-Type: application/json" \
   -d '{"url":"https://builds.example.com/v1.2.3/firmware.bin","mode":"firmware"}'
 ```
@@ -273,8 +273,8 @@ has no signature to catch a truncated image the way `/ota/upload` does.
 HTTPS needs a trust decision from you:
 
 ```cpp
-JouleOTA.setPullCACert(ISRG_ROOT_X1_PEM);   // pin, or …
-JouleOTA.allowInsecurePullTls(true);        // … explicitly accept any cert
+VectiOTA.setPullCACert(ISRG_ROOT_X1_PEM);   // pin, or …
+VectiOTA.allowInsecurePullTls(true);        // … explicitly accept any cert
 ```
 
 With neither set, `https://` URLs are refused with a `pull-tls-unpinned`
@@ -294,15 +294,15 @@ status event. Certificate *fingerprint* pinning is not supported — ESP32's
 2. In firmware:
 
    ```cpp
-   JouleOTA.setSigningKey("a9f1…");      // the hex string
+   VectiOTA.setSigningKey("a9f1…");      // the hex string
    ```
 
 3. In your CI, sign each release before upload:
 
    ```bash
    SIG=$(openssl dgst -sha256 -mac HMAC -macopt hexkey:a9f1… -hex firmware.bin | awk '{print $2}')
-   curl -u admin:joule -X POST http://device/ota/upload?mode=firmware \
-        -H "X-Joule-Signature: $SIG" \
+   curl -u admin:vecti -X POST http://device/ota/upload?mode=firmware \
+        -H "X-Vecti-Signature: $SIG" \
         -F update=@firmware.bin
    ```
 
@@ -315,10 +315,10 @@ The browser UI does not compute signatures, so turning signing on makes
 
 ## Rollback explained
 
-ESP32's bootloader supports **two app slots**: `app0` and `app1`. JouleOTA
+ESP32's bootloader supports **two app slots**: `app0` and `app1`. VectiOTA
 writes the new image into whichever slot is *not* running, then flags the
 new slot as `PENDING_VERIFY`. On the next reset the bootloader runs the
-new firmware once. If your sketch calls `JouleOTA.commit()` before the
+new firmware once. If your sketch calls `VectiOTA.commit()` before the
 rollback timeout expires, the slot is marked `VALID` and stays the active
 slot. If it doesn't (because the firmware crashed, hung, or failed
 self-test) the bootloader picks the previous `VALID` slot on the next
@@ -327,14 +327,14 @@ reset and you're back to a known-good state.
 ```cpp
 void setup() {
   // … bring up Wi-Fi …
-  JouleOTA.setRollbackTimeoutMs(30000);   // 30 s grace
-  JouleOTA.begin(&server, "admin", "pw");
+  VectiOTA.setRollbackTimeoutMs(30000);   // 30 s grace
+  VectiOTA.begin(&server, "admin", "pw");
 
   // run smoke-tests: peripherals reachable, NTP synced, etc.
   if (smokeTestPasses()) {
-    JouleOTA.commit();
+    VectiOTA.commit();
   } else {
-    JouleSerial.err("self-test failed — letting bootloader roll back");
+    VectiSerial.err("self-test failed — letting bootloader roll back");
   }
 }
 ```
@@ -342,7 +342,7 @@ void setup() {
 For a manual rollback (e.g. operator-triggered from the UI):
 
 ```cpp
-JouleOTA.rollback();   // marks current invalid + reboots
+VectiOTA.rollback();   // marks current invalid + reboots
 ```
 
 ---
@@ -352,7 +352,7 @@ JouleOTA.rollback();   // marks current invalid + reboots
 ### Browser → HTTP Basic
 
 ```cpp
-JouleOTA.begin(&server, "admin", "strong-password");
+VectiOTA.begin(&server, "admin", "strong-password");
 ```
 
 The browser prompts on first visit; credentials stick for the session.
@@ -360,19 +360,19 @@ The browser prompts on first visit; credentials stick for the session.
 ### CI / scripts → token header
 
 ```cpp
-JouleOTA.setAuth(joule::OtaAuth::Token, "long-random-token");
+VectiOTA.setAuth(vecti::OtaAuth::Token, "long-random-token");
 ```
 
 ```bash
 curl -X POST http://device/ota/upload?mode=firmware \
-     -H "X-Joule-Token: long-random-token" \
+     -H "X-Vecti-Token: long-random-token" \
      -F update=@firmware.bin
 ```
 
 ### Local-only / behind VPN → no auth
 
 ```cpp
-JouleOTA.begin(&server);              // pass empty strings
+VectiOTA.begin(&server);              // pass empty strings
 ```
 
 ---
@@ -392,7 +392,7 @@ JouleOTA.begin(&server);              // pass empty strings
 
 Mobile (390 px wide):
 
-![JouleOTA mobile](docs/screenshots/ota-mobile.png)
+![VectiOTA mobile](docs/screenshots/ota-mobile.png)
 
 ---
 
@@ -403,17 +403,17 @@ Mobile (390 px wide):
 | `400 Bad Request` on upload | Signed-firmware mode is on but signature header missing/wrong | Set the header or temporarily clear the key |
 | `429` + `rate-limited` status event | Too many upload/pull/rollback attempts from the same IP in the last 5 s | `setRateLimitMs(0)` or wait |
 | `begin-failed:...esp_partition_find_first` | OTA partition layout missing | Use a `default_8MB.csv` (or larger) partition CSV |
-| Upload completes, device reboots, then reverts once | Self-test isn't calling `commit()` after success | Add `JouleOTA.commit()` at the end of `setup()` |
+| Upload completes, device reboots, then reverts once | Self-test isn't calling `commit()` after success | Add `VectiOTA.commit()` at the end of `setup()` |
 | `pull-tls-unpinned` status event | `https://` pull URL with no CA pinned | `setPullCACert()`, or `allowInsecurePullTls(true)` if you accept the risk |
 | Upload answers `409 busy` | A previous upload or pull is still running | Wait, or check `/ota/info` → `updating` |
 | UI loads but progress stays at 0% | The browser tab uploading is fine; this tab is observing via SSE and the device is busy | Just wait — progress will sync up |
-| `IncompleteRead` on weak Wi-Fi | TCP retransmits failing | JouleOTA does not touch the radio. Add `WiFi.setSleep(false)` and `WiFi.setTxPower(WIFI_POWER_19_5dBm)` in your sketch, move the device closer, or use a directional antenna |
+| `IncompleteRead` on weak Wi-Fi | TCP retransmits failing | VectiOTA does not touch the radio. Add `WiFi.setSleep(false)` and `WiFi.setTxPower(WIFI_POWER_19_5dBm)` in your sketch, move the device closer, or use a directional antenna |
 
 ---
 
 ## Comparison with build-it-yourself
 
-| Concern | Roll-your-own | JouleOTA |
+| Concern | Roll-your-own | VectiOTA |
 |---|---|---|
 | Drag-drop UI | Write & maintain HTML | Included, 25 KB gz |
 | Pull-from-URL | Bespoke HTTP client + state machine | One POST `/ota/pull` |
@@ -438,8 +438,8 @@ Mobile (390 px wide):
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).
 
 ---
 
-<sub>**Author:** Chinmoy Bhuyan · **Email:** dikibhuyan@gmail.com · **(c)** 2026 — MIT</sub>
+<sub>**Author:** Chinmoy Bhuyan · **Email:** chinmoy@joulepoint.com · **(c)** 2026 — Apache-2.0</sub>

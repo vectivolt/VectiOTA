@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
-// JouleSuite for ESP32 / ESP8266 — JouleOTA · JouleSerial · JouleNet · JouleDash
+// VectiSuite for ESP32 / ESP8266 — VectiOTA · VectiSerial · VectiNet · VectiDash
 // Author: Chinmoy Bhuyan
-// Email:  dikibhuyan@gmail.com
-// (c) 2026 — MIT License
+// Email:  chinmoy@joulepoint.com
+// (c) 2026 VectiVolt — Apache-2.0 License
 // ---------------------------------------------------------------------------
 
-// JouleOTA implementation. See JouleOTA.h for the rationale + public API.
+// VectiOTA implementation. See VectiOTA.h for the rationale + public API.
 //
 // The interesting code paths in this file:
 //
@@ -26,8 +26,8 @@
 //                             window, the bootloader picks the old slot on
 //                             the next reset.
 
-#include "JouleOTA.h"
-#include "JouleOTA_ui_gz.h"
+#include "VectiOTA.h"
+#include "VectiOTA_ui_gz.h"
 #include <ArduinoJson.h>
 
 // Serve pre-compressed UI with Content-Encoding: gzip — browsers inflate
@@ -50,9 +50,9 @@ static void sendGzippedUi(AsyncWebServerRequest *req, const uint8_t *gz, size_t 
   #include <WiFiClientSecure.h>
 #endif
 
-namespace joule {
+namespace vecti {
 
-JouleOTAClass::JouleOTAClass() = default;
+VectiOTAClass::VectiOTAClass() = default;
 
 // A pull request is a couple of hundred bytes of JSON; anything larger is
 // either a mistake or an attempt to grow the accumulator past the free heap.
@@ -122,7 +122,7 @@ static bool runningImagePendingVerify() {
 #endif
 }
 
-bool JouleOTAClass::_sigBegin() {
+bool VectiOTAClass::_sigBegin() {
   uint8_t key[64];
   size_t keyLen = hexToBytes(_signingKey, key, sizeof(key));
   if (keyLen == 0) return false;
@@ -145,7 +145,7 @@ bool JouleOTAClass::_sigBegin() {
   return true;
 }
 
-void JouleOTAClass::_sigUpdate(const uint8_t *data, size_t len) {
+void VectiOTAClass::_sigUpdate(const uint8_t *data, size_t len) {
   if (!_sigActive || !len) return;
 #if defined(ESP32)
   mbedtls_md_hmac_update(&_sigCtx, data, len);
@@ -154,7 +154,7 @@ void JouleOTAClass::_sigUpdate(const uint8_t *data, size_t len) {
 #endif
 }
 
-bool JouleOTAClass::_sigFinish(const String &expectedHex) {
+bool VectiOTAClass::_sigFinish(const String &expectedHex) {
   if (!_sigActive) return false;
   uint8_t mac[32];
 #if defined(ESP32)
@@ -174,7 +174,7 @@ bool JouleOTAClass::_sigFinish(const String &expectedHex) {
   return diff == 0;
 }
 
-void JouleOTAClass::_sigAbort() {
+void VectiOTAClass::_sigAbort() {
 #if defined(ESP32)
   if (_sigActive) mbedtls_md_free(&_sigCtx);
 #endif
@@ -182,20 +182,20 @@ void JouleOTAClass::_sigAbort() {
   _sigExpected = "";
 }
 
-bool JouleOTAClass::_authorize(AsyncWebServerRequest *req) const {
+bool VectiOTAClass::_authorize(AsyncWebServerRequest *req) const {
   if (_auth == OtaAuth::None) return true;
   if (_auth == OtaAuth::Basic) {
     if (_user.length()==0) return true;
     return req->authenticate(_user.c_str(), _pass.c_str());
   }
   if (_auth == OtaAuth::Token) {
-    if (!req->hasHeader("X-Joule-Token")) return false;
-    return req->getHeader("X-Joule-Token")->value() == _token;
+    if (!req->hasHeader("X-Vecti-Token")) return false;
+    return req->getHeader("X-Vecti-Token")->value() == _token;
   }
   return false;
 }
 
-bool JouleOTAClass::_rateLimitOk(AsyncWebServerRequest *req) {
+bool VectiOTAClass::_rateLimitOk(AsyncWebServerRequest *req) {
   uint32_t now = millis();
   // IPAddress -> uint32_t is platform-specific; treat as opaque key.
   uint32_t ip = (uint32_t)req->client()->remoteIP();
@@ -212,14 +212,14 @@ bool JouleOTAClass::_rateLimitOk(AsyncWebServerRequest *req) {
   target->ip = ip; target->lastMs = now; return true;
 }
 
-void JouleOTAClass::_emitEvent(const String &type, const String &payload) {
+void VectiOTAClass::_emitEvent(const String &type, const String &payload) {
   if (_events) _events->send(payload.c_str(), type.c_str(), millis());
 }
 
 // AsyncTCP task ONLY — it touches _uploadOwner/_uploadStarted/_uploadStatus/
 // _uploadError, which that task owns. The loop task (_executePull) must not
 // call this; it clears _updating itself instead.
-void JouleOTAClass::_resetUploadState() {
+void VectiOTAClass::_resetUploadState() {
   // Dropping _updating without closing the updater orphans the session, and
   // every later Update.begin() then fails with "already running" until power
   // cycle. Abort here so no caller can forget.
@@ -230,7 +230,7 @@ void JouleOTAClass::_resetUploadState() {
   _uploadOwner = nullptr;
 }
 
-void JouleOTAClass::_rejectUpload(int status, const String &reason) {
+void VectiOTAClass::_rejectUpload(int status, const String &reason) {
   // Whatever the updater had open is dead now — leaving it running would make
   // every later Update.begin() fail with "already running" until power cycle.
   if (_updating) { updAbort(); _updating = false; }
@@ -241,7 +241,7 @@ void JouleOTAClass::_rejectUpload(int status, const String &reason) {
   if (_onError) _onError(reason);
 }
 
-void JouleOTAClass::_scheduleReboot(uint32_t delayMs, bool viaRollback) {
+void VectiOTAClass::_scheduleReboot(uint32_t delayMs, bool viaRollback) {
   _rebootAtMs       = millis() + delayMs;
   _rebootIsRollback = viaRollback;
   _rebootPending    = true;
@@ -249,7 +249,7 @@ void JouleOTAClass::_scheduleReboot(uint32_t delayMs, bool viaRollback) {
 
 // ---------- public API ------------------------------------------------------
 
-void JouleOTAClass::setAuth(OtaAuth mode, const String &userOrToken, const String &password) {
+void VectiOTAClass::setAuth(OtaAuth mode, const String &userOrToken, const String &password) {
   _auth = mode;
   if (mode == OtaAuth::Basic) { _user = userOrToken; _pass = password; _token = ""; }
   else if (mode == OtaAuth::Token) { _token = userOrToken; _user = _pass = ""; }
@@ -261,12 +261,12 @@ void JouleOTAClass::setAuth(OtaAuth mode, const String &userOrToken, const Strin
 // _authorize() can never see it — the credentials have to live in the
 // handler's own auth middleware instead. Re-applied whenever the auth config
 // changes so it doesn't matter whether setAuth() precedes or follows begin().
-void JouleOTAClass::_applyEventsAuth() {
+void VectiOTAClass::_applyEventsAuth() {
   if (!_events) return;
   if (_auth == OtaAuth::Basic && _user.length()) {
     _events->setAuthentication(_user.c_str(), _pass.c_str(), AsyncAuthType::AUTH_BASIC);
   } else if (_auth == OtaAuth::Token) {
-    // Browsers cannot attach X-Joule-Token to an EventSource, so there is no
+    // Browsers cannot attach X-Vecti-Token to an EventSource, so there is no
     // way to authenticate this stream in token mode. Deny it rather than leave
     // the one unauthenticated hole in an otherwise gated API.
     _events->setAuthentication("", "", AsyncAuthType::AUTH_DENIED);
@@ -275,7 +275,7 @@ void JouleOTAClass::_applyEventsAuth() {
   }
 }
 
-void JouleOTAClass::commit() {
+void VectiOTAClass::commit() {
 #if defined(ESP32)
   const esp_partition_t *running = esp_ota_get_running_partition();
   esp_ota_img_states_t state;
@@ -287,7 +287,7 @@ void JouleOTAClass::commit() {
   _committed = true; _rollbackArmed = false;
 }
 
-void JouleOTAClass::setRollbackTimeoutMs(uint32_t ms) {
+void VectiOTAClass::setRollbackTimeoutMs(uint32_t ms) {
   _rollbackTimeoutMs = ms;
   // Order-independent: begin() may already have run, and a timeout set after
   // it used to arm nothing at all.
@@ -297,7 +297,7 @@ void JouleOTAClass::setRollbackTimeoutMs(uint32_t ms) {
   }
 }
 
-void JouleOTAClass::rollback() {
+void VectiOTAClass::rollback() {
 #if defined(ESP32)
   if (esp_ota_check_rollback_is_possible()) {
     esp_ota_mark_app_invalid_rollback_and_reboot();
@@ -314,7 +314,7 @@ void JouleOTAClass::rollback() {
 
 // ---------- mounting --------------------------------------------------------
 
-void JouleOTAClass::begin(AsyncWebServer *server, const String &username, const String &password) {
+void VectiOTAClass::begin(AsyncWebServer *server, const String &username, const String &password) {
   _server = server;
   if (username.length()) { _auth = OtaAuth::Basic; _user = username; _pass = password; }
 
@@ -343,7 +343,7 @@ void JouleOTAClass::begin(AsyncWebServer *server, const String &username, const 
   // exact() matcher to keep `/ota` confined to the literal `/ota` path.
   _server->on(AsyncURIMatcher::exact("/ota"), HTTP_GET, [this](AsyncWebServerRequest *req){
     if (!_authorize(req)) return req->requestAuthentication();
-    sendGzippedUi(req, joule::OTA_UI_HTML_GZ, joule::OTA_UI_HTML_GZ_LEN, _auth != OtaAuth::None);
+    sendGzippedUi(req, vecti::OTA_UI_HTML_GZ, vecti::OTA_UI_HTML_GZ_LEN, _auth != OtaAuth::None);
   });
 
   // ---- /ota/info → device JSON snapshot ----
@@ -451,7 +451,7 @@ void JouleOTAClass::begin(AsyncWebServer *server, const String &username, const 
           // The digest covers the whole body and can only be checked once the
           // last chunk lands, but the header has to be captured now — and a
           // missing one must stop the flash before a single byte is written.
-          const AsyncWebHeader *sig = req->getHeader("X-Joule-Signature");
+          const AsyncWebHeader *sig = req->getHeader("X-Vecti-Signature");
           if (!sig) return _rejectUpload(400, F("sig-missing"));
           _sigExpected = sig->value();
           // Fail closed: if the HMAC engine won't start (malformed key, no
@@ -631,7 +631,7 @@ void JouleOTAClass::begin(AsyncWebServer *server, const String &username, const 
 
 // ---------- loop tasks ------------------------------------------------------
 
-void JouleOTAClass::loop() {
+void VectiOTAClass::loop() {
   // Deferred reboot — the handler that asked for it runs on the AsyncTCP task
   // and cannot wait for its own response to be written.
   if (_rebootPending && (int32_t)(millis() - _rebootAtMs) >= 0) {
@@ -651,7 +651,7 @@ void JouleOTAClass::loop() {
   _processPullQueue();
 }
 
-void JouleOTAClass::_processPullQueue() {
+void VectiOTAClass::_processPullQueue() {
   if (!_pullPending) return;
   String url = _pullUrl; OtaMode mode = _pullMode;
   // Clear the buffer before the flag: the flag is what tells the TCP task the
@@ -661,7 +661,7 @@ void JouleOTAClass::_processPullQueue() {
   _executePull(url, mode);
 }
 
-bool JouleOTAClass::_executePull(const String &url, OtaMode mode) {
+bool VectiOTAClass::_executePull(const String &url, OtaMode mode) {
 #if defined(ESP32)
   WiFiClient httpClient;
   WiFiClientSecure tlsClient;
@@ -774,6 +774,6 @@ bool JouleOTAClass::_executePull(const String &url, OtaMode mode) {
 #endif
 }
 
-} // namespace joule
+} // namespace vecti
 
-joule::JouleOTAClass JouleOTA;
+vecti::VectiOTAClass VectiOTA;

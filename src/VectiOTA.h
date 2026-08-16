@@ -1,15 +1,15 @@
 // ---------------------------------------------------------------------------
-// JouleSuite for ESP32 / ESP8266 — JouleOTA · JouleSerial · JouleNet · JouleDash
+// VectiSuite for ESP32 / ESP8266 — VectiOTA · VectiSerial · VectiNet · VectiDash
 // Author: Chinmoy Bhuyan
-// Email:  dikibhuyan@gmail.com
-// (c) 2026 — MIT License
+// Email:  chinmoy@joulepoint.com
+// (c) 2026 VectiVolt — Apache-2.0 License
 // ---------------------------------------------------------------------------
 
-// JouleOTA — async over-the-air updater for ESP32 / ESP8266.
+// VectiOTA — async over-the-air updater for ESP32 / ESP8266.
 //
 // Why this exists: ElegantOTA (the popular incumbent) is closed-source after
 // v2, lacks pull-from-URL updates, no signed firmware, no rate limiting, and
-// its auth is "HTTP Basic or nothing". JouleOTA is MIT-licensed and adds:
+// its auth is "HTTP Basic or nothing". VectiOTA is Apache-2.0 licensed and adds:
 //
 //   * Push OTA (drag-and-drop in the browser) AND pull OTA (firmware fetched
 //     from a URL the device polls or is told about over HTTP).
@@ -30,10 +30,10 @@
 // Usage (3 lines, same as ElegantOTA):
 //
 //     #include <ESPAsyncWebServer.h>
-//     #include <JouleOTA.h>
+//     #include <VectiOTA.h>
 //     AsyncWebServer server(80);
-//     void setup() { server.begin(); JouleOTA.begin(&server, "admin", "joule"); }
-//     void loop()  { JouleOTA.loop(); }   // only needed for rollback / pull-mode
+//     void setup() { server.begin(); VectiOTA.begin(&server, "admin", "vecti"); }
+//     void loop()  { VectiOTA.loop(); }   // only needed for rollback / pull-mode
 //
 // All UI assets are embedded in flash via PROGMEM — no LittleFS dependency
 // for the library itself.
@@ -54,10 +54,10 @@
   #include <Updater.h>
   #include <bearssl/bearssl_hmac.h>
 #else
-  #error "JouleOTA requires ESP32 or ESP8266"
+  #error "VectiOTA requires ESP32 or ESP8266"
 #endif
 
-namespace joule {
+namespace vecti {
 
 // What kind of image is being uploaded — determines which Update.begin()
 // overload runs and which partition the bytes land in.
@@ -72,7 +72,7 @@ enum class OtaMode : uint8_t {
 enum class OtaAuth : uint8_t {
   None  = 0,
   Basic = 1,   // HTTP Basic over the wire (use HTTPS in production)
-  Token = 2,   // X-Joule-Token: <token> header
+  Token = 2,   // X-Vecti-Token: <token> header
 };
 
 // Callbacks the host sketch can hook to react to lifecycle events.
@@ -82,9 +82,9 @@ using OtaEndCb       = std::function<void(bool success, const String &message)>;
 using OtaErrorCb     = std::function<void(const String &reason)>;
 using OtaRebootCb    = std::function<bool()>; // return true to allow auto-reboot
 
-class JouleOTAClass {
+class VectiOTAClass {
 public:
-  JouleOTAClass();
+  VectiOTAClass();
 
   // Mount the OTA endpoints onto an existing AsyncWebServer. `username` and
   // `password` are optional; pass empty strings to disable Basic auth.
@@ -121,7 +121,7 @@ public:
   void setBrandColor(const String &css)   { _brandColor = css; }
 
   // Optional HMAC-SHA256 signature check. If a key is set, each upload must
-  // arrive with header `X-Joule-Signature: <hex>` over the entire multipart
+  // arrive with header `X-Vecti-Signature: <hex>` over the entire multipart
   // body — that is, over exactly the bytes the browser/curl sends as the file
   // part, which is the image itself. Empty key disables the check (default).
   // Applies to /ota/upload only; a pulled image carries no signature, so pin
@@ -202,7 +202,7 @@ private:
 
   String  _hwId       = "";
   String  _fwVersion  = "1.0.0";
-  String  _title      = "JouleOTA";
+  String  _title      = "VectiOTA";
   String  _brandColor = "#7c5cff";
   String  _signingKey = "";
 
@@ -278,6 +278,6 @@ private:
   OtaRebootCb    _onBeforeReboot;
 };
 
-} // namespace joule
+} // namespace vecti
 
-extern joule::JouleOTAClass JouleOTA;
+extern vecti::VectiOTAClass VectiOTA;

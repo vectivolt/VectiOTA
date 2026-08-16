@@ -1,21 +1,21 @@
 {
-  "name": "JouleOTA",
+  "name": "VectiOTA",
   "version": "1.1.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hyndex/JouleOTA.git"
+    "url": "https://github.com/vectivolt/VectiOTA.git"
   },
-  "homepage": "https://github.com/hyndex/JouleOTA",
+  "homepage": "https://github.com/vectivolt/VectiOTA",
   "description": "Battle-tested async OTA for ESP32/ESP8266 \u2014 push + pull updates, signed firmware, A/B rollback, auth, live SSE progress, drag-drop UI with dark mode.",
   "keywords": "ota, esp32, esp8266, async, update, firmware, signed, rollback",
   "authors": [
     {
       "name": "Chinmoy Bhuyan",
-      "email": "dikibhuyan@gmail.com",
+      "email": "chinmoy@joulepoint.com",
       "maintainer": true
     }
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "frameworks": "arduino",
   "platforms": [
     "espressif32",
