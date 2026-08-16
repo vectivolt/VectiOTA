@@ -51,6 +51,7 @@ void checkForUpdate() {
   // from a browser.
   HTTPClient self;
   self.begin("http://127.0.0.1/ota/pull");
+  self.setAuthorization("admin", "strong-password");   // same credentials begin() was given
   self.addHeader("Content-Type", "application/json");
   String body = String("{\"url\":\"") + url + "\",\"mode\":\"firmware\"}";
   self.POST(body);
@@ -66,6 +67,12 @@ void setup() {
   JouleOTA.setFWVersion(RUNNING_VERSION);
   JouleOTA.setTitle("Fleet OTA · " + WiFi.macAddress());
   JouleOTA.allowPullMode(true);
+  // https:// pulls are refused until you say what to trust. Pin the root CA
+  // your build server's certificate chains to:
+  //   JouleOTA.setPullCACert(MY_ROOT_CA_PEM);
+  // The opt-out below accepts any certificate — fine on a lab LAN, not in a
+  // fleet, where anyone who can answer DNS then owns the boot image.
+  JouleOTA.allowInsecurePullTls(true);
   JouleOTA.begin(&server, "admin", "strong-password");
   server.begin();
   JouleOTA.commit();

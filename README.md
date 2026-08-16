@@ -2,12 +2,17 @@
 
 > Async over-the-air firmware updater for ESP32 and ESP8266 — drag-drop in
 > a browser, pull from a URL, sign with HMAC-SHA256, A/B-rollback if the
-> new image goes bad. MIT-licensed, mobile-friendly, 5 KB on the wire.
+> new image goes bad. MIT-licensed, mobile-friendly, gzipped UI.
 
 ![JouleOTA UI](docs/screenshots/ota-desktop.png)
 
 **Author:** [Chinmoy Bhuyan](mailto:dikibhuyan@gmail.com) · **License:** MIT
 · **Targets:** ESP32 (S2 / S3 / C3 / classic), ESP8266
+
+Two features are ESP32-only, because the hardware is: **pull-from-URL**
+(`/ota/pull` answers `501` on ESP8266) and **A/B rollback** (ESP8266 has no
+second app slot). Push upload, signing, auth, rate limiting and the UI work
+on both.
 
 ---
 
@@ -16,9 +21,9 @@
 | | |
 |---|---|
 | 🖱  **Drag-drop UI** | Polished single-page updater with SVG progress ring, live byte/throughput counters, mode tabs |
-| ☁  **Pull from URL** | Tell the device to fetch a firmware from any HTTP/HTTPS URL — perfect for fleet rollouts from a build pipeline |
-| 🔐 **Signed firmware (optional)** | HMAC-SHA256 over the full body with a constant-time hex compare. Disabled by default; enable with one call |
-| ↺  **A/B rollback** | If the new firmware never calls `commit()` within your timeout, the bootloader picks the previous slot on the next reset |
+| ☁  **Pull from URL** (ESP32) | Tell the device to fetch a firmware from any HTTP/HTTPS URL, redirects followed — perfect for fleet rollouts from a build pipeline |
+| 🔐 **Signed firmware (optional)** | HMAC-SHA256 over the uploaded image, hashed incrementally as it streams, constant-time compare. Disabled by default; enable with one call |
+| ↺  **A/B rollback** (ESP32) | If the new firmware never calls `commit()` within your timeout, the bootloader picks the previous slot on the next reset |
 | 📁 **Firmware + filesystem** | Switch modes from the same UI to flash either the app partition or SPIFFS / LittleFS |
 | 📡 **Live progress via SSE** | Every connected browser tab updates in real-time, not just the one that started the upload |
 | ⏱  **Rate limiting** | Per-IP minimum gap (default 5 s) so a brute-force auth attempt can't burn the flash erase cycle counter |
@@ -26,7 +31,7 @@
 | 🔒 **HTTP Basic + token auth** | Pick `OtaAuth::Basic` for browser flows, `OtaAuth::Token` for headless CI |
 | 🎨 **Theme aware** | Dark / light / auto; user choice persists; brand colour configurable |
 | 📱 **Mobile-first** | 44 px touch targets, viewport-fit safe-area, glass-morphism panels |
-| 🪶 **5 KB on the wire** | Pre-gzipped UI served with `Content-Encoding: gzip` |
+| 🪶 **Pre-gzipped UI** | 70 KB SPA ships as a 25 KB flash blob and goes out with `Content-Encoding: gzip` |
 
 ---
 
@@ -103,27 +108,53 @@ void clearAuth();
 void setSigningKey(const String &hexKey);       // empty = disable (default)
 ```
 
-If a key is set, each upload must include header
-`X-Joule-Signature: <hex>` where `hex` is the HMAC-SHA256 of the full
-body computed with the key. The verifier uses a constant-time compare to
-defeat timing oracles. Recommended key length: 32 bytes (64 hex chars).
+If a key is set, each `/ota/upload` must include header
+`X-Joule-Signature: <hex>` where `hex` is the HMAC-SHA256 of the image
+computed with the key. The digest is fed to the HMAC chunk by chunk as the
+body streams in (nothing is buffered) and compared — constant-time, against
+the decoded bytes so case doesn't matter — before `Update.end()` marks the
+new slot bootable. A missing, malformed or wrong signature aborts the
+updater and answers `400`; the check never fails open. Recommended key
+length: 32 bytes (64 hex chars).
+
+This covers push uploads only. A pulled image carries no signature — pin a
+CA for it with `setPullCACert()` instead.
 
 ### Policy
 
 ```cpp
-void setRateLimitMs       (uint32_t ms);   // min gap between upload starts per IP
+void setRateLimitMs       (uint32_t ms);   // min gap per IP: upload, pull, rollback
 void allowFirmwareUpdates  (bool on);      // default true
 void allowFilesystemUpdates(bool on);      // default true
 void allowPullMode         (bool on);      // default true
+
+void setPullCACert     (const char *pemRootCa);  // pin the TLS root for /ota/pull
+void allowInsecurePullTls(bool on);              // default false — see below
 ```
+
+`https://` pull URLs are **refused** unless you either pin a root CA or
+explicitly opt into `allowInsecurePullTls(true)`. `WiFiClientSecure`
+verifies nothing until it is told what to trust, so an unpinned pull would
+flash whatever answers the DNS query. The PEM string is not copied — pass a
+literal or something else that outlives the device.
 
 ### Rollback
 
 ```cpp
 void setRollbackTimeoutMs(uint32_t ms);   // 0 = disabled (default)
 void commit();                            // call from setup() after self-test
-void rollback();                          // force immediate revert + reboot
+void rollback();                          // revert to the previous slot + reboot
 ```
+
+The watchdog only arms when the bootloader is actually waiting on a verdict
+for the running image (`slotState: "pending"` in `/ota/info`). A
+serially-flashed build, a single-app partition table and every ESP8266 are
+left alone, so a failing self-test can't turn into a reset loop.
+`rollback()` on a device with no other valid slot emits a
+`rollback-unavailable` status event and does nothing; `POST /ota/rollback`
+checks the same condition up front and answers `409` (or `501` on ESP8266)
+instead of `200`. Call order doesn't matter — `setRollbackTimeoutMs()` works
+before or after `begin()`.
 
 Recommended flow:
 
@@ -175,10 +206,10 @@ uint8_t progressPct()   const;
 | `/ota`        | GET  | yes | The drag-drop SPA |
 | `/ota/info`   | GET  | yes | JSON snapshot of device + partition state |
 | `/ota/upload` | POST | yes | Multipart firmware/filesystem upload (`?mode=firmware\|filesystem`) |
-| `/ota/pull`   | POST | yes | `{"url":"…","mode":"firmware"}` — device fetches over HTTP/HTTPS |
-| `/ota/events` | SSE  | yes | Live progress + status events |
+| `/ota/pull`   | POST | yes | `{"url":"…","mode":"firmware"}` — device fetches over HTTP/HTTPS (ESP32 only; `501` elsewhere) |
+| `/ota/events` | SSE  | yes | Live progress + status events. Basic auth only — an `EventSource` can't send `X-Joule-Token`, so token mode closes this endpoint rather than leaving it open |
 | `/ota/commit` | POST | yes | Mark current slot valid (cancels pending rollback) |
-| `/ota/rollback` | POST | yes | Revert to previous slot and reboot |
+| `/ota/rollback` | POST | yes | Revert to previous slot and reboot. `409 rollback-unavailable` when there is no other valid slot (serial-flashed image, single-app partition table); `501` on ESP8266 |
 
 ### `/ota/info` payload
 
@@ -222,10 +253,33 @@ curl -u admin:joule -X POST http://device.local/ota/pull \
   -d '{"url":"https://builds.example.com/v1.2.3/firmware.bin","mode":"firmware"}'
 ```
 
-The device queues the URL, downloads it on the next `loop()` tick
-(non-blocking — the HTTP request returns `202 Accepted` immediately),
-flashes, and reboots. HTTPS URLs use `WiFiClientSecure::setInsecure()`
-by default — pin a fingerprint in your sketch if you need TLS-pinning.
+The device queues the URL and answers `202 Accepted` immediately, then
+downloads on the next `loop()` tick, flashes and reboots. Other answers:
+`409` a pull or upload is already in flight, `429` rate-limited, `413`
+body over 512 bytes, `400` unparseable or no `url`, `501` on ESP8266.
+
+The download itself is synchronous inside `loop()` — a 1 MB image blocks
+your sketch for the length of the transfer. Redirects are followed
+(`HTTPC_STRICT_FOLLOW_REDIRECTS`), so release assets and pre-signed
+object-store URLs work. A stalled server ends the transfer after 10 s of
+silence and the whole download is capped at 5 minutes; either way the image
+is abandoned, never flashed part-way.
+
+**The response must carry a `Content-Length`.** A chunked or length-less
+response is refused with a `pull-no-length` status event: without a declared
+size there is no way to tell a finished body from a stalled one, and a pull
+has no signature to catch a truncated image the way `/ota/upload` does.
+
+HTTPS needs a trust decision from you:
+
+```cpp
+JouleOTA.setPullCACert(ISRG_ROOT_X1_PEM);   // pin, or …
+JouleOTA.allowInsecurePullTls(true);        // … explicitly accept any cert
+```
+
+With neither set, `https://` URLs are refused with a `pull-tls-unpinned`
+status event. Certificate *fingerprint* pinning is not supported — ESP32's
+`WiFiClientSecure` has no fingerprint API.
 
 ---
 
@@ -252,7 +306,10 @@ by default — pin a fingerprint in your sketch if you need TLS-pinning.
         -F update=@firmware.bin
    ```
 
-Unsigned uploads will be rejected with `400 Bad Request`.
+Unsigned uploads — and uploads with a wrong signature — are rejected with
+`400 Bad Request`, and the updater is aborted so nothing is left half-written.
+The browser UI does not compute signatures, so turning signing on makes
+`/ota/upload` a CI-only endpoint.
 
 ---
 
@@ -344,11 +401,13 @@ Mobile (390 px wide):
 | Symptom | Cause | Fix |
 |---|---|---|
 | `400 Bad Request` on upload | Signed-firmware mode is on but signature header missing/wrong | Set the header or temporarily clear the key |
-| `rate-limited` status event | Too many upload starts from the same IP in the last 5 s | Increase `setRateLimitMs(0)` or wait |
+| `429` + `rate-limited` status event | Too many upload/pull/rollback attempts from the same IP in the last 5 s | `setRateLimitMs(0)` or wait |
 | `begin-failed:...esp_partition_find_first` | OTA partition layout missing | Use a `default_8MB.csv` (or larger) partition CSV |
-| Upload completes, device reboots, then reverts every 30 s | Self-test isn't calling `commit()` after success | Add `JouleOTA.commit()` at the end of `setup()` |
+| Upload completes, device reboots, then reverts once | Self-test isn't calling `commit()` after success | Add `JouleOTA.commit()` at the end of `setup()` |
+| `pull-tls-unpinned` status event | `https://` pull URL with no CA pinned | `setPullCACert()`, or `allowInsecurePullTls(true)` if you accept the risk |
+| Upload answers `409 busy` | A previous upload or pull is still running | Wait, or check `/ota/info` → `updating` |
 | UI loads but progress stays at 0% | The browser tab uploading is fine; this tab is observing via SSE and the device is busy | Just wait — progress will sync up |
-| `IncompleteRead` on weak Wi-Fi | TCP retransmits failing | Library already disables modem sleep + maxes TX power. Move the device closer or use a directional antenna |
+| `IncompleteRead` on weak Wi-Fi | TCP retransmits failing | JouleOTA does not touch the radio. Add `WiFi.setSleep(false)` and `WiFi.setTxPower(WIFI_POWER_19_5dBm)` in your sketch, move the device closer, or use a directional antenna |
 
 ---
 
@@ -356,7 +415,7 @@ Mobile (390 px wide):
 
 | Concern | Roll-your-own | JouleOTA |
 |---|---|---|
-| Drag-drop UI | Write & maintain HTML | Included, 5 KB gz |
+| Drag-drop UI | Write & maintain HTML | Included, 25 KB gz |
 | Pull-from-URL | Bespoke HTTP client + state machine | One POST `/ota/pull` |
 | Signature check | Hook into mbedtls manually | `setSigningKey()` |
 | A/B rollback | Read `esp_ota_*` APIs by hand | `setRollbackTimeoutMs()` + `commit()` |
@@ -368,10 +427,12 @@ Mobile (390 px wide):
 
 ## Dependencies
 
-* `ESP32Async/ESPAsyncWebServer @ ^3.7.0`
+* `ESP32Async/ESPAsyncWebServer @ ^3.11.0` — the floor is set by
+  `AsyncURIMatcher::exact()`, which is a web-server API, not a core one.
+  Anything older fails to compile with `'AsyncURIMatcher' has not been declared`.
 * `ESP32Async/AsyncTCP @ ^3.4.0`
 * `bblanchon/ArduinoJson @ ^7.4.0`
-* arduino-esp32 core 3.x (for `AsyncURIMatcher::exact()`)
+* arduino-esp32 core 2.0.17 or newer (the bundled demo builds on 2.0.17)
 
 ---
 

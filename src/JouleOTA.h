@@ -100,14 +100,18 @@ public:
              const String &username = "",
              const String &password = "");
 
-  // Must be called from loop() for pull-mode polling and rollback timing.
-  // Cost is ~5µs when idle.
+  // Must be called from loop() for pull-mode polling, rollback timing and the
+  // deferred reboot after a successful flash — a handler cannot reboot itself,
+  // see the note on _rebootPending. Cost is ~5µs when idle.
   void loop();
 
   // ---- configuration --------------------------------------------------
 
   void setAuth(OtaAuth mode, const String &userOrToken, const String &password = "");
-  void clearAuth() { _auth = OtaAuth::None; _user = ""; _pass = ""; _token = ""; }
+  // Goes through setAuth() so the /ota/events middleware is re-applied too —
+  // otherwise the SSE stream keeps the old credentials (or, from Token mode,
+  // AUTH_DENIED) and answers 401 on a device with auth switched off.
+  void clearAuth() { setAuth(OtaAuth::None, "", ""); }
 
   // Free-form identity strings shown on the page and returned by /ota/info.
   // Recommended: setID(WiFi.macAddress()), setFWVersion(__DATE__ " " __TIME__).
@@ -117,9 +121,20 @@ public:
   void setBrandColor(const String &css)   { _brandColor = css; }
 
   // Optional HMAC-SHA256 signature check. If a key is set, each upload must
-  // arrive with header `X-Joule-Signature: <hex>` over the entire body.
-  // Empty key disables the check (default).
+  // arrive with header `X-Joule-Signature: <hex>` over the entire multipart
+  // body — that is, over exactly the bytes the browser/curl sends as the file
+  // part, which is the image itself. Empty key disables the check (default).
+  // Applies to /ota/upload only; a pulled image carries no signature, so pin
+  // a CA for it instead (setPullCACert).
   void setSigningKey(const String &hexKey) { _signingKey = hexKey; }
+
+  // TLS policy for pull-from-URL. WiFiClientSecure verifies nothing by
+  // default, so an https:// pull with neither of these set is refused rather
+  // than silently accepting whatever answers the DNS query. `pemRootCa` is
+  // not copied — pass a string literal or another pointer that outlives the
+  // device.
+  void setPullCACert(const char *pemRootCa) { _pullCaCert = pemRootCa; }
+  void allowInsecurePullTls(bool enabled)   { _pullInsecure = enabled; }
 
   // Rate-limiting — minimum gap between accepted upload starts per remote IP.
   void setRateLimitMs(uint32_t ms)        { _rateLimitMs = ms; }
@@ -130,10 +145,15 @@ public:
   void allowPullMode(bool enabled)          { _allowPull = enabled; }
 
   // Rollback support: after a successful flash + reboot, the new firmware
-  // must call commit() before this timeout or the bootloader reverts.
-  void setRollbackTimeoutMs(uint32_t ms)  { _rollbackTimeoutMs = ms; }
+  // must call commit() before this timeout or the bootloader reverts. The
+  // watchdog only arms when the bootloader is actually waiting on a verdict
+  // for the running image, so a serially-flashed build is never affected.
+  // Safe to call before or after begin().
+  void setRollbackTimeoutMs(uint32_t ms);
   void commit();                          // call from setup() after self-test
-  void rollback();                        // force immediate revert + reboot
+  // Revert to the previous slot and reboot. No-op (emits `rollback-unavailable`)
+  // when there is no other valid slot to go back to.
+  void rollback();
 
   // ---- callbacks ------------------------------------------------------
   void onStart(OtaStartCb cb)         { _onStart = std::move(cb); }
@@ -155,8 +175,20 @@ private:
   bool _authorize(AsyncWebServerRequest *req) const;
   bool _rateLimitOk(AsyncWebServerRequest *req);
   void _emitEvent(const String &type, const String &payload);
-  bool _verifySignature(const uint8_t *body, size_t len, const String &hexSig) const;
   void _resetUploadState();
+  // Records why an upload was refused so the completion handler can answer
+  // with a real status instead of guessing from Update.hasError().
+  void _rejectUpload(int status, const String &reason);
+  void _scheduleReboot(uint32_t delayMs, bool viaRollback);
+  void _applyEventsAuth();
+
+  // Incremental HMAC-SHA256 over the upload body. The signature covers the
+  // whole image, which is far larger than free RAM on either chip, so the
+  // digest is fed chunk by chunk and only compared once the last chunk lands.
+  bool _sigBegin();
+  void _sigUpdate(const uint8_t *data, size_t len);
+  bool _sigFinish(const String &expectedHex);
+  void _sigAbort();
 
   // Pull-mode polling (called from loop()).
   void _processPullQueue();
@@ -179,6 +211,9 @@ private:
   bool     _allowFilesystem   = true;
   bool     _allowPull         = true;
 
+  const char *_pullCaCert     = nullptr;
+  bool        _pullInsecure   = false;
+
   // Per-IP last-upload-attempt timestamp. Tiny ring of 8 entries — enough
   // for a small office network, not a DoS-resistant cache.
   struct RateSlot { uint32_t ip = 0; uint32_t lastMs = 0; };
@@ -187,17 +222,54 @@ private:
   volatile bool   _updating = false;
   size_t          _written  = 0;
   size_t          _total    = 0;
+  size_t          _lastEmit = 0;
   OtaMode         _mode     = OtaMode::Firmware;
+
+  // Upload outcome, recorded by the chunk handler. Never infer success from
+  // Update.hasError(): a refused upload never touches the updater at all, so
+  // hasError() is false and the completion handler would answer 200 and
+  // reboot into firmware that was never written.
+  // All four are written and read only on the AsyncTCP task (chunk handler,
+  // completion handler, onDisconnect). _uploadOwner is the request that took
+  // the updater; any other request's completion handler must not read or
+  // clear the rest. Compared as an identity only — never dereferenced.
+  AsyncWebServerRequest *_uploadOwner = nullptr;
+  bool     _uploadStarted = false;
+  int      _uploadStatus  = 0;
+  String   _uploadError;
+
+  bool     _sigActive = false;
+  String   _sigExpected;
+#if defined(ESP32)
+  mbedtls_md_context_t _sigCtx;
+#elif defined(ESP8266)
+  br_hmac_context      _sigCtx;
+#endif
 
   uint32_t _rollbackTimeoutMs   = 0;
   uint32_t _rollbackArmedAtMs   = 0;
   bool     _rollbackArmed       = false;
   bool     _committed           = false;
 
-  // Pull-mode pending request — set by /ota/pull, drained in loop().
-  String   _pullUrl;
-  OtaMode  _pullMode = OtaMode::Firmware;
-  bool     _pullPending = false;
+  // Reboots are scheduled here and executed from loop(), never inline in a
+  // handler: the AsyncTCP task is the one that writes the queued response, so
+  // resetting (or delay()ing) inside a callback guarantees the client sees a
+  // dropped socket instead of the 200 it was waiting for.
+  uint32_t _rebootAtMs        = 0;
+  bool     _rebootPending     = false;
+  bool     _rebootIsRollback  = false;
+
+  // Pull-mode pending request — set by /ota/pull on the AsyncTCP task,
+  // drained in loop(). _pullUrl is only written while _pullPending is false
+  // and only read while it is true, so the flag alone orders the handoff.
+  String            _pullUrl;
+  String            _pullBody;
+  String            _pullError;
+  OtaMode           _pullMode = OtaMode::Firmware;
+  volatile bool     _pullPending = false;
+  // Latched verdict for the response handler (AsyncTCP task only). Separate
+  // from _pullPending, which loop() clears as soon as it starts the download.
+  bool              _pullAccepted = false;
 
   OtaStartCb     _onStart;
   OtaProgressCb  _onProgress;

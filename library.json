@@ -1,6 +1,11 @@
 {
   "name": "JouleOTA",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hyndex/JouleOTA.git"
+  },
+  "homepage": "https://github.com/hyndex/JouleOTA",
   "description": "Battle-tested async OTA for ESP32/ESP8266 \u2014 push + pull updates, signed firmware, A/B rollback, auth, live SSE progress, drag-drop UI with dark mode.",
   "keywords": "ota, esp32, esp8266, async, update, firmware, signed, rollback",
   "authors": [
@@ -17,7 +22,7 @@
     "espressif8266"
   ],
   "dependencies": {
-    "ESP32Async/ESPAsyncWebServer": "^3.7.0",
+    "ESP32Async/ESPAsyncWebServer": "^3.11.0",
     "ESP32Async/AsyncTCP": "^3.4.0",
     "bblanchon/ArduinoJson": "^7.4.0"
   },

@@ -15,8 +15,12 @@
 //      curl -u admin:joule -X POST http://device/ota/upload?mode=firmware \
 //           -H "X-Joule-Signature: $SIG" -F update=@firmware.bin
 //
-// Unsigned uploads (or wrong signature) are rejected with HTTP 400.
-// A constant-time hex compare defeats timing-oracle attacks.
+// Unsigned uploads (or wrong signature) are rejected with HTTP 400 and the
+// updater is aborted, so nothing is left half-written. The digest is computed
+// incrementally as the body streams in and compared in constant time.
+//
+// Note: the browser UI does not sign, so with a key set /ota/upload is a
+// CI-only endpoint. Drag-and-drop will come back 400 sig-missing.
 
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
