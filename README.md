@@ -21,6 +21,33 @@ written for both.
 
 ---
 
+## ⚖️ Flash cost, and how to cut it
+
+Pull-from-URL is the expensive feature. It links `HTTPClient`, `WiFiClientSecure` and
+the mbedTLS/x509 stack, and the linker keeps all of it whether or not you ever call it —
+`allowPullMode(false)` is a runtime switch and reclaims nothing.
+
+Measured on the four-library demo, `board = esp32dev`, same toolchain, one flag changed:
+
+| Build | Flash | of a 1.3 MB app slot | RAM |
+|---|---|---|---|
+| default (`VECTIOTA_ENABLE_PULL=1`) | 1,269,949 B | **96.9%** | 63,576 B |
+| `-DVECTIOTA_ENABLE_PULL=0` | 1,099,169 B | **83.9%** | 61,484 B |
+| **saving** | **170,780 B** | **13 points** | **2,092 B** |
+
+```ini
+; platformio.ini — push-from-browser OTA only, no TLS stack
+build_flags = -DVECTIOTA_ENABLE_PULL=0
+```
+
+Turning it off removes the `POST /ota/pull` endpoint. Everything else — drag-and-drop
+upload, signed images, A/B rollback, SSE progress, rate limiting, auth — is unaffected.
+
+On a 4 MB module this is close to mandatory: the default build leaves under 41 KB of
+headroom in the stock partition table. If you do not push firmware to your fleet by URL,
+turn it off.
+
+
 ## Features
 
 | | |

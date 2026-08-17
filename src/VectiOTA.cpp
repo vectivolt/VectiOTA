@@ -44,7 +44,20 @@ static void sendGzippedUi(AsyncWebServerRequest *req, const uint8_t *gz, size_t 
 }
 
 // Pull-from-URL is ESP32-only, so the HTTP client only gets pulled in there.
-#if defined(ESP32)
+// Pull-from-URL drags in HTTPClient, WiFiClientSecure and the whole mbedTLS/x509
+// stack. Measured against an otherwise identical build, that is 176,392 bytes of
+// flash and 3,348 bytes of RAM — 13% of the app partition on a 4 MB module, paid
+// by every device whether or not it ever pulls. allowPullMode(false) is a runtime
+// switch and does not reclaim any of it, because the linker has already kept the
+// code.
+//
+// Default is 1, so an existing sketch keeps the documented behaviour. Set
+// -DVECTIOTA_ENABLE_PULL=0 to drop the endpoint and get those bytes back.
+#ifndef VECTIOTA_ENABLE_PULL
+  #define VECTIOTA_ENABLE_PULL 1
+#endif
+
+#if defined(ESP32) && VECTIOTA_ENABLE_PULL
   #include <HTTPClient.h>
   #include <WiFiClientSecure.h>
   // arduino-esp32 3.x re-homed WiFiClient onto NetworkClient and stopped
@@ -68,7 +81,7 @@ static constexpr uint32_t kPullTotalMs   = 5UL * 60UL * 1000UL;
 static constexpr uint32_t kPullIdleMs    = 10UL * 1000UL;
 // _executePull has no ESP8266 implementation, so /ota/pull refuses there
 // instead of answering 202 for a rollout that will never happen.
-#if defined(ESP32)
+#if defined(ESP32) && VECTIOTA_ENABLE_PULL
 static constexpr bool     kPullSupported = true;
 #else
 static constexpr bool     kPullSupported = false;
@@ -666,7 +679,7 @@ void VectiOTAClass::_processPullQueue() {
 }
 
 bool VectiOTAClass::_executePull(const String &url, OtaMode mode) {
-#if defined(ESP32)
+#if defined(ESP32) && VECTIOTA_ENABLE_PULL
   WiFiClient httpClient;
   WiFiClientSecure tlsClient;
   WiFiClient *cli = &httpClient;

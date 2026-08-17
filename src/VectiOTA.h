@@ -56,6 +56,14 @@
   #error "VectiOTA requires ESP32 or ESP8266"
 #endif
 
+// Compile-time switch for pull-from-URL. Defining VECTIOTA_ENABLE_PULL=0 removes
+// the /ota/pull endpoint and, more to the point, stops HTTPClient and the TLS
+// stack being linked at all — measured at 176,392 bytes of flash and 3,348 bytes
+// of RAM on ESP32. Push-from-browser OTA is unaffected.
+#ifndef VECTIOTA_ENABLE_PULL
+  #define VECTIOTA_ENABLE_PULL 1
+#endif
+
 namespace vecti {
 
 // What kind of image is being uploaded — determines which Update.begin()
