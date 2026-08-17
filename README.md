@@ -21,6 +21,43 @@ written for both.
 
 ---
 
+## ⚠️ commit() and the rollback trap
+
+arduino-esp32 ships `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`. An OTA'd image therefore
+boots as **`PENDING_VERIFY`**, and if nothing marks it valid the bootloader reverts to
+the previous slot **on the next reset** — not immediately. The failure mode is nasty
+because everything looks fine: the upload returns 200, the device reboots into the new
+firmware, and the old firmware comes back a power cycle later.
+
+So `commit()` must be called from a self-test that can actually pass **on the device you
+are shipping**. The trap we hit on real hardware:
+
+```cpp
+// WRONG on any device that serves its own portal.
+// WL_CONNECTED is a STATION state and is never true for a SoftAP-only device,
+// so commit() never runs and every OTA silently reverts.
+if (uptime > 20000 && WiFi.status() == WL_CONNECTED) VectiOTA.commit();
+
+// RIGHT — accept either radio role.
+const bool sta = WiFi.status() == WL_CONNECTED;
+const bool ap  = (WiFi.getMode() & WIFI_MODE_AP) &&
+                 WiFi.softAPIP() != IPAddress((uint32_t)0);
+if (uptime > 20000 && (sta || ap)) VectiOTA.commit();
+```
+
+Log the slot and its state at boot so this is diagnosable over a serial cable, without
+needing the network that may be the thing that is broken:
+
+```cpp
+const esp_partition_t *run = esp_ota_get_running_partition();
+esp_ota_img_states_t st = ESP_OTA_IMG_UNDEFINED;
+if (run) esp_ota_get_state_partition(run, &st);
+// -> "running slot=app0 state=PENDING_VERIFY" is the smoking gun
+```
+
+`demo/src/main.cpp` does both.
+
+
 ## ⚖️ Flash cost, and how to cut it
 
 Pull-from-URL is the expensive feature. It links `HTTPClient`, `WiFiClientSecure` and
